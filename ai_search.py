@@ -1,22 +1,22 @@
-import json
 import re
-from pathlib import Path
 
-JSON_PATH = Path("zetzet_knowledge.json")
+from parser import load_data
 
 
 def ai_search(query: str, limit: int = 5):
-    if not JSON_PATH.exists():
-        return []
-
-    with JSON_PATH.open(encoding="utf-8") as source:
-        data = json.load(source)
-
+    data = load_data()
     normalized_query = query.lower().strip()
-    words = [word for word in re.findall(r"[a-zа-яё0-9\-]+", normalized_query) if len(word) > 1]
+    words = [
+        word
+        for word in re.findall(r"[a-zа-яё0-9\-]+", normalized_query)
+        if len(word) > 1
+    ]
 
     max_price = None
-    price_match = re.search(r"(?:до|не дороже|максимум)\s*(\d[\d\s]*)", normalized_query)
+    price_match = re.search(
+        r"(?:до|не дороже|максимум)\s*(\d[\d\s]*)",
+        normalized_query,
+    )
     if price_match:
         max_price = float(price_match.group(1).replace(" ", ""))
 

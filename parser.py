@@ -1,12 +1,12 @@
 import json
 from datetime import datetime
+from pathlib import Path
 
 import requests
 from lxml import etree
 
 FEED_URL = "https://zetzet.ru/yandexmarket/26adc4f2-5a1f-417b-b3a0-8f37e0be1b79.xml"
-JSON_PATH = "zetzet_knowledge.json"
-TEXT_PATH = "zetzet_knowledge.txt"
+JSON_PATH = Path("zetzet_knowledge.json")
 
 
 def clean_text(value: str) -> str:
@@ -18,8 +18,8 @@ def clean_text(value: str) -> str:
 def parse_feed() -> int:
     response = requests.get(
         FEED_URL,
-        timeout=120,
-        headers={"User-Agent": "ZetZet-Knowledge-Bot/1.0"},
+        timeout=180,
+        headers={"User-Agent": "ZetZet-FastBots/2.0"},
     )
     response.raise_for_status()
 
@@ -30,15 +30,9 @@ def parse_feed() -> int:
     }
 
     products = []
-    text_blocks = []
 
     for offer in root.xpath("//offer"):
         category_id = offer.findtext("categoryId") or ""
-        pictures = [
-            clean_text(picture.text or "")
-            for picture in offer.findall("picture")
-            if clean_text(picture.text or "")
-        ]
 
         product = {
             "id": offer.attrib.get("id", ""),
@@ -50,7 +44,6 @@ def parse_feed() -> int:
             "category": categories.get(category_id, ""),
             "description": clean_text(offer.findtext("description") or ""),
             "url": clean_text(offer.findtext("url") or ""),
-            "pictures": pictures,
         }
 
         product["search_text"] = " ".join(
@@ -64,21 +57,6 @@ def parse_feed() -> int:
 
         products.append(product)
 
-        availability = "В наличии" if product["available"] else "Нет в наличии"
-        text_blocks.append(
-            "\n".join(
-                [
-                    f"ТОВАР: {product['name']}",
-                    f"БРЕНД: {product['brand'] or 'Не указан'}",
-                    f"КАТЕГОРИЯ: {product['category'] or 'Не указана'}",
-                    f"ЦЕНА: {product['price']:.0f} {product['currency']}",
-                    f"НАЛИЧИЕ: {availability}",
-                    f"ССЫЛКА: {product['url']}",
-                    f"ОПИСАНИЕ: {product['description'] or 'Описание отсутствует'}",
-                ]
-            )
-        )
-
     payload = {
         "shop": "ZetZet.ru",
         "updated": datetime.now().isoformat(),
@@ -86,23 +64,15 @@ def parse_feed() -> int:
         "products": products,
     }
 
-    with open(JSON_PATH, "w", encoding="utf-8") as json_file:
-        json.dump(payload, json_file, ensure_ascii=False)
-
-    header = "\n".join(
-        [
-            "БАЗА ТОВАРОВ ИНТЕРНЕТ-МАГАЗИНА ZETZET.RU",
-            f"Обновлено: {payload['updated']}",
-            f"Количество товаров: {len(products)}",
-            "",
-            "Используй только указанные в базе цены, характеристики, наличие и ссылки.",
-            "Если точного товара нет, предложи близкие варианты и уточни потребность клиента.",
-            "",
-        ]
-    )
-
-    with open(TEXT_PATH, "w", encoding="utf-8") as text_file:
-        text_file.write(header)
-        text_file.write("\n\n---\n\n".join(text_blocks))
+    with JSON_PATH.open("w", encoding="utf-8") as file:
+        json.dump(payload, file, ensure_ascii=False)
 
     return len(products)
+
+
+def load_data():
+    if not JSON_PATH.exists():
+        parse_feed()
+
+    with JSON_PATH.open(encoding="utf-8") as file:
+        return json.load(file)
