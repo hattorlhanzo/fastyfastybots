@@ -1,5 +1,6 @@
-import requests, json
+import requests
 from lxml import etree
+import json
 from datetime import datetime
 
 FEED_URL="https://zetzet.ru/yandexmarket/26adc4f2-5a1f-417b-b3a0-8f37e0be1b79.xml"
@@ -14,22 +15,15 @@ def parse_feed():
 
     for offer in root.xpath("//offer"):
         p={
-            "id":offer.attrib.get("id"),
-            "name":offer.findtext("name") or "",
-            "brand":offer.findtext("vendor") or "",
-            "price":float(offer.findtext("price") or 0),
-            "url":offer.findtext("url") or "",
-            "category":categories.get(offer.findtext("categoryId"),""),
-            "description":offer.findtext("description") or ""
+            "name": offer.findtext("name") or "",
+            "brand": offer.findtext("vendor") or "",
+            "price": float(offer.findtext("price") or 0),
+            "url": offer.findtext("url") or "",
+            "category": categories.get(offer.findtext("categoryId"), ""),
+            "description": offer.findtext("description") or ""
         }
 
-        p["search_text"]=(
-            p["name"]+" "+
-            p["brand"]+" "+
-            p["category"]+" "+
-            p["description"]
-        ).lower()
-
+        p["search_text"]=(p["name"]+" "+p["brand"]+" "+p["category"]+" "+p["description"]).lower()
         products.append(p)
 
     with open("zetzet_knowledge.json","w",encoding="utf-8") as f:

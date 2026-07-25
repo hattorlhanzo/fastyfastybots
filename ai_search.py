@@ -1,47 +1,23 @@
 import json
-import re
 
-def ai_search(query, limit=5):
-
+def ai_search(query):
     with open("zetzet_knowledge.json",encoding="utf-8") as f:
         data=json.load(f)
 
     q=query.lower()
-
-    price=None
-    numbers=re.findall(r'\d+',q)
-
-    for n in numbers:
-        if int(n)>10000:
-            price=int(n)
-
-    results=[]
+    result=[]
 
     for p in data["products"]:
-
-        score=0
-
-        if q in p["search_text"]:
-            score+=10
-
-        for word in q.split():
-            if word in p["search_text"]:
-                score+=1
-
-        if score>0:
-
-            if price and p["price"]>price:
-                continue
-
-            results.append({
+        if any(word in p["search_text"] for word in q.split()):
+            result.append({
                 "name":p["name"],
                 "brand":p["brand"],
                 "category":p["category"],
                 "price":p["price"],
-                "url":p["url"],
-                "score":score
+                "url":p["url"]
             })
 
-    results.sort(key=lambda x:x["score"], reverse=True)
+        if len(result)>=5:
+            break
 
-    return results[:limit]
+    return result
