@@ -14,9 +14,10 @@ FEED_URL = os.getenv(
     "https://zetzet.ru/yandexmarket/26adc4f2-5a1f-417b-b3a0-8f37e0be1b79.xml",
 )
 JSON_PATH = Path(os.getenv("JSON_PATH", "zetzet_knowledge.json"))
-# Через сколько часов данные считаются устаревшими и выгрузка перечитывается сама.
+# Как часто перечитывать выгрузку с сайта (часы). Фоновый поток обновляет данные
+# по расписанию, даже если к сервису никто не обращается.
 # 0 — отключить автообновление (тогда только через /update).
-REFRESH_HOURS = float(os.getenv("REFRESH_HOURS", "6"))
+REFRESH_HOURS = float(os.getenv("REFRESH_HOURS", "4"))
 
 COMPAT_PARAM = "Выбрать смартфон"
 COLOR_PARAMS = {"Цвет", "Цвет."}
@@ -257,3 +258,25 @@ def load_data():
 def get_product(product_id):
     load_data()
     return _cache["by_id"].get(str(product_id))
+
+
+_refresh_thread = None
+
+
+def _refresh_loop():
+    while True:
+        time.sleep(REFRESH_HOURS * 3600)
+        try:
+            with _lock:
+                count = parse_feed()
+            print(f"Scheduled feed refresh: {count} products")
+        except Exception as error:
+            print(f"Scheduled feed refresh failed: {error}")
+
+
+def start_background_refresh():
+    global _refresh_thread
+    if REFRESH_HOURS <= 0 or _refresh_thread is not None:
+        return
+    _refresh_thread = threading.Thread(target=_refresh_loop, daemon=True)
+    _refresh_thread.start()

@@ -6,9 +6,11 @@ from fastapi import FastAPI, Query, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 
 from ai_search import ai_search
-from parser import get_product, load_data, parse_feed
+from parser import get_product, load_data, parse_feed, start_background_refresh
 
-app = FastAPI(title="ZetZet FastBots Knowledge API v6")
+app = FastAPI(title="ZetZet FastBots Knowledge API v7")
+
+start_background_refresh()
 
 PRODUCTS_PER_PAGE = 50
 
@@ -173,11 +175,9 @@ def robots(request: Request):
 # Каталог v2: одна страница = один товар.
 # FastBots режет страницу на куски; когда на странице 50 товаров, в кусок
 # попадают описания соседних позиций и бот путает цену и ссылку. Здесь
-# название, цена и ссылка стоят в начале и в конце страницы одного товара.
+# название, цена и ссылка стоят в начале и в конце страницы одного товара,
+# между ними — полное описание из выгрузки.
 # ---------------------------------------------------------------------------
-
-DESCRIPTION_LIMIT = 400
-
 
 def _format_price(product):
     value = float(product.get("price") or 0)
@@ -186,12 +186,8 @@ def _format_price(product):
     return f"{amount} ₽" if currency in ("RUB", "RUR") else f"{amount} {currency}"
 
 
-def _short_description(text):
-    text = " ".join((text or "").split())
-    if len(text) <= DESCRIPTION_LIMIT:
-        return text
-    cut = text[:DESCRIPTION_LIMIT].rsplit(" ", 1)[0]
-    return cut.rstrip(",.;:—-– ") + "…"
+def _full_description(text):
+    return " ".join((text or "").split())
 
 
 def _catalog_url(base, product_id):
@@ -261,9 +257,9 @@ def catalog_product(product_id: str):
     if product.get("keywords"):
         lines.append(f"<p>Поиск: {html.escape(product['keywords'])}</p>")
 
-    description = _short_description(product.get("description"))
+    description = _full_description(product.get("description"))
     if description:
-        lines.append(f"<p>Описание (кратко): {html.escape(description)}</p>")
+        lines.append(f"<p>Описание: {html.escape(description)}</p>")
 
     lines.append(
         f"<p>Итого: {name} — {price}, {availability}. "
