@@ -6,7 +6,7 @@ from fastapi import FastAPI, Query, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 
 from ai_search import ai_search
-from parser import load_data, parse_feed
+from parser import get_product, load_data, parse_feed
 
 app = FastAPI(title="ZetZet FastBots Knowledge API v6")
 
@@ -22,6 +22,8 @@ def home(request: Request):
         "fastbots_source": urljoin(base, "fastbots/"),
         "sitemap": urljoin(base, "sitemap.xml"),
         "update": urljoin(base, "update"),
+        "catalog_v2": urljoin(base, "catalog/"),
+        "catalog_v2_sitemap": urljoin(base, "catalog/sitemap.xml"),
     }
 
 
@@ -162,5 +164,144 @@ def robots(request: Request):
     return (
         "User-agent: *\n"
         "Allow: /fastbots/\n"
+        "Allow: /catalog/\n"
         f"Sitemap: {urljoin(str(request.base_url), 'sitemap.xml')}\n"
     )
+
+
+# ---------------------------------------------------------------------------
+# Каталог v2: одна страница = один товар.
+# FastBots режет страницу на куски; когда на странице 50 товаров, в кусок
+# попадают описания соседних позиций и бот путает цену и ссылку. Здесь
+# название, цена и ссылка стоят в начале и в конце страницы одного товара.
+# ---------------------------------------------------------------------------
+
+DESCRIPTION_LIMIT = 400
+
+
+def _format_price(product):
+    value = float(product.get("price") or 0)
+    amount = f"{value:,.0f}".replace(",", " ")
+    currency = product.get("currency") or "RUB"
+    return f"{amount} ₽" if currency in ("RUB", "RUR") else f"{amount} {currency}"
+
+
+def _short_description(text):
+    text = " ".join((text or "").split())
+    if len(text) <= DESCRIPTION_LIMIT:
+        return text
+    cut = text[:DESCRIPTION_LIMIT].rsplit(" ", 1)[0]
+    return cut.rstrip(",.;:—-– ") + "…"
+
+
+def _catalog_url(base, product_id):
+    return urljoin(base, f"catalog/p/{product_id}")
+
+
+@app.get("/catalog/", response_class=HTMLResponse)
+def catalog_index(request: Request):
+    data = load_data()
+    products = data.get("products", [])
+    base = str(request.base_url)
+
+    links = "\n".join(
+        f'<li><a href="{html.escape(_catalog_url(base, product.get("id", "")))}">'
+        f'товар {html.escape(str(product.get("id", "")))}</a></li>'
+        for product in products
+    )
+
+    return f"""<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>ZetZet.ru — служебный список страниц товаров</title>
+</head>
+<body>
+  <main>
+    <h1>Служебный список страниц товаров ZetZet.ru</h1>
+    <p>Страница нужна только для обхода. Информация о товарах — на страницах товаров.</p>
+    <p>Обновлено: {html.escape(data.get("updated", ""))}. Товаров: {len(products)}.</p>
+    <ul>{links}</ul>
+  </main>
+</body>
+</html>"""
+
+
+@app.get("/catalog/p/{product_id}", response_class=HTMLResponse)
+def catalog_product(product_id: str):
+    product = get_product(product_id)
+    if not product:
+        return HTMLResponse("<h1>Товар не найден</h1>", status_code=404)
+
+    name = html.escape(product.get("name", ""))
+    price = html.escape(_format_price(product))
+    availability = "в наличии" if product.get("available") else "нет в наличии"
+    url = html.escape(product.get("url", ""))
+
+    lines = [
+        f"<p>ЦЕНА: {price}. НАЛИЧИЕ: {availability}.</p>",
+        f'<p>ССЫЛКА НА ЭТОТ ТОВАР: <a href="{url}">{url}</a></p>',
+        f"<p>ID товара на сайте: {html.escape(str(product.get('id', '')))}"
+        + (f". Артикул: {html.escape(product['vendor_code'])}" if product.get("vendor_code") else "")
+        + "</p>",
+    ]
+    if product.get("brand"):
+        lines.append(f"<p>Бренд: {html.escape(product['brand'])}</p>")
+    if product.get("category_path") or product.get("category"):
+        lines.append(
+            f"<p>Категория: {html.escape(product.get('category_path') or product.get('category'))}</p>"
+        )
+    if product.get("compatible"):
+        lines.append(f"<p>Подходит для: {html.escape(', '.join(product['compatible']))}</p>")
+    if product.get("colors"):
+        lines.append(f"<p>Цвет: {html.escape(', '.join(product['colors']))}</p>")
+    if product.get("params"):
+        params = "; ".join(f"{key}: {value}" for key, value in product["params"])
+        lines.append(f"<p>Характеристики: {html.escape(params)}</p>")
+    if product.get("keywords"):
+        lines.append(f"<p>Поиск: {html.escape(product['keywords'])}</p>")
+
+    description = _short_description(product.get("description"))
+    if description:
+        lines.append(f"<p>Описание (кратко): {html.escape(description)}</p>")
+
+    lines.append(
+        f"<p>Итого: {name} — {price}, {availability}. "
+        f'ССЫЛКА НА ЭТОТ ТОВАР: <a href="{url}">{url}</a></p>'
+    )
+
+    body = "\n    ".join(lines)
+    return f"""<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>{name} — {price} — ZetZet.ru</title>
+</head>
+<body>
+  <main>
+    <article>
+    <h1>ТОВАР: {name}</h1>
+    {body}
+    </article>
+  </main>
+</body>
+</html>"""
+
+
+@app.get("/catalog/sitemap.xml")
+def catalog_sitemap(request: Request):
+    data = load_data()
+    base = str(request.base_url)
+
+    xml_urls = "".join(
+        f"<url><loc>{html.escape(_catalog_url(base, product.get('id', '')))}</loc></url>"
+        for product in data.get("products", [])
+    )
+
+    xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+        f"{xml_urls}</urlset>"
+    )
+
+    return Response(content=xml, media_type="application/xml")
